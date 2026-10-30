@@ -442,6 +442,7 @@ const MENU_WINDOWS: &[(&str, &str)] = &[
     ("Setup > Appearance", "window.ui_customization"),
     ("Setup > Hardware...", "window.playback_engine"),
     ("Setup > Playback Engine...", "window.playback_engine"),
+    ("Setup > Record Offset...", "window.playback_engine"),
     ("Setup > I/O...", "window.io_setup"),
     ("Setup > Keyboard Shortcuts...", "window.shortcuts"),
     ("Setup > Session", "setup.session"),
@@ -522,6 +523,9 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
     // (`MENU_WINDOWS`). A programmatic call applies the open device instead.
     if matches!(id, "setup.playback_engine" | "setup.hardware") {
         return Some(crate::windows::setup_audio_command(app, id, p));
+    }
+    if id == "setup.record_offset" {
+        return Some(crate::windows::record_offset_command(app, p));
     }
     let toggle = |v: &mut bool| {
         *v = p.get("value").and_then(Value::as_bool).unwrap_or(!*v);

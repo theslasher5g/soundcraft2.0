@@ -141,11 +141,25 @@ impl SoundApp {
         }
     }
 
+    /// What the drivers report as latency right now (zero for a device that does not say).
+    pub(crate) fn reported_latency(&self) -> soundcraft_engine::io::record_offset::ReportedLatency {
+        soundcraft_engine::io::record_offset::ReportedLatency {
+            input: self.recorder.as_ref().map_or_else(Default::default, |r| r.input_latency()),
+            output: self.player.as_ref().map_or_else(Default::default, |p| p.output_latency()),
+        }
+    }
+
+    /// The record offset for a recording that starts now, in samples at the session's rate.
+    pub(crate) fn record_offset(&self) -> Samples {
+        self.ui.record_offset.total(self.engine.session().sample_rate.hz(), self.reported_latency())
+    }
+
     /// Remember where the armed `takes` go (split into passes of `pass` when loop recording) and
     /// autosave that plan with the session.
     fn plan_recording(&mut self, takes: Vec<soundcraft_engine::io::Take>, pass: Option<Samples>) {
         let rate = self.recorder.as_ref().map_or(0, |r| r.sample_rate);
-        self.take_plan = Some(soundcraft_engine::io::Recording { start: self.record_start, pass, punch: self.punch, rate, takes });
+        let offset = self.record_offset();
+        self.take_plan = Some(soundcraft_engine::io::Recording { start: self.record_start, pass, punch: self.punch, rate, offset, takes });
         if let Some(root) = self.autosave_dir.clone() {
             self.queue_autosave(root);
         }
@@ -190,6 +204,7 @@ impl SoundApp {
             pass: None,
             punch: self.punch,
             rate: 0,
+            offset: self.record_offset(),
             takes: Vec::new(),
         });
         self.punch = None;

@@ -59,8 +59,10 @@ where
     let (failed, guard, gone) = (Arc::clone(fault), Arc::clone(shared), Arc::clone(fault));
     device.build_output_stream(
         config,
-        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+        move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
             mark_audio_thread();
+            let times = info.timestamp();
+            crate::record::note_latency(&failed.latency_us, times.playback.duration_since(times.callback));
             for out in data.chunks_mut(chunk) {
                 let Some(s) = scratch.get_mut(..out.len()) else { return };
                 guarded_block(&failed, &guard, s, |d| state.fill(d, channels));

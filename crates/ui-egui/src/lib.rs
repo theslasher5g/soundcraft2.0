@@ -116,6 +116,8 @@ pub struct UiState {
     pub show_playback_engine: bool,
     /// The audio device choice (Setup › Playback Engine), kept with the preferences: per machine.
     pub audio: soundcraft_playback::AudioConfig,
+    /// The record offset (Setup › Playback Engine), kept with the preferences: per machine.
+    pub record_offset: soundcraft_engine::io::record_offset::RecordOffset,
     /// The Mix window lives in its own native window (Window › Mix in Separate Window); the main
     /// window then always shows Edit.
     pub mix_separate: bool,
@@ -183,6 +185,7 @@ impl Default for UiState {
             show_configurations: false,
             show_playback_engine: false,
             audio: soundcraft_playback::AudioConfig::default(),
+            record_offset: Default::default(),
             mix_separate: false,
             show_io_setup: false,
             show_shortcuts: false,
