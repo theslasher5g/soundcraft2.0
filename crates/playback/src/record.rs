@@ -492,6 +492,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_cleared_ring_holds_no_old_input() {
+        let ring = super::InputRing::new(1, 48_000);
+        ring.push(&vec![0.7; 24_000]);
+        ring.clear();
+        let mut out = vec![vec![1.0; 64]];
+        ring.pop_into(&mut out, 64, 48_000);
+        assert!(out[0].iter().all(|x| *x == 0.0), "silence, not the half second that piled up");
+        ring.push(&[0.25; 256]);
+        ring.pop_into(&mut out, 64, 48_000);
+        assert!(out[0].iter().all(|x| (*x - 0.25).abs() < 1e-6), "new input is heard at once");
+    }
+
+    #[test]
+    fn a_backlog_past_the_limit_is_skipped_instead_of_kept_as_delay() {
+        let ring = super::InputRing::new(1, 48_000);
+        // A ramp: the value says how old a frame is (frame n holds n).
+        ring.push(&(0..24_000).map(|n| n as f32).collect::<Vec<_>>());
+        let mut out = vec![vec![0.0; 64]];
+        ring.pop_into(&mut out, 64, 48_000);
+        // 24 000 frames are 500 ms; the limit is 300 ms and 100 ms are kept: reading starts about
+        // 4 800 frames before the newest one, not at the oldest.
+        let first = out[0][0];
+        assert!((first - 19_200.0).abs() <= 1.0, "starts at {first}");
+        // Below the limit nothing is skipped.
+        let calm = super::InputRing::new(1, 48_000);
+        calm.push(&(0..9_600).map(|n| n as f32).collect::<Vec<_>>());
+        calm.pop_into(&mut out, 64, 48_000);
+        assert_eq!(out[0][0], 0.0);
+    }
+
+    #[test]
     fn the_reported_latency_is_averaged_and_hostile_values_are_ignored() {
         let slot = AtomicU64::new(0);
         note_latency(&slot, Duration::ZERO);
@@ -701,6 +732,17 @@ impl InputRing {
         }
     }
 
+    /// Throw away what the ring holds. The output calls this while nothing monitors or plays, so
+    /// the input that piled up meanwhile (up to the ring's half second) is not played late once
+    /// monitoring or recording starts: the ring is read at the rate it is written, so a backlog
+    /// would otherwise stay as a constant delay.
+    pub fn clear(&self) {
+        if let Ok(mut s) = self.state.try_lock() {
+            s.data.clear();
+            s.phase = 0.0;
+        }
+    }
+
     /// Fill `out` (planar, at `session_rate`) with up to `frames` frames, converting from the
     /// input rate. Missing frames are silence.
     pub fn pop_into(&self, out: &mut [Vec<f32>], frames: usize, session_rate: u32) {
@@ -709,6 +751,15 @@ impl InputRing {
             c.iter_mut().take(frames).for_each(|x| *x = 0.0);
         }
         let Ok(mut s) = self.state.try_lock() else { return };
+        // The input and output devices run on their own clocks, so an input that is a little fast
+        // makes the backlog grow without bound (up to `cap`). Past `MAX_LAG` skip ahead to
+        // `KEEP_LAG` of audio (a click, in place of a delay that never goes away).
+        let (max_lag, keep_lag) = if self.rate == 0 { (7_200, 2_400) } else { ((self.rate / 10 * 3) as usize, (self.rate / 10) as usize) };
+        let backlog = s.data.len() / ch;
+        if backlog > max_lag {
+            s.data.drain(..(backlog - keep_lag) * ch);
+            s.phase = 0.0;
+        }
         // Input frames consumed per output frame.
         let step = if self.rate == 0 || session_rate == 0 { 1.0 } else { f64::from(self.rate) / f64::from(session_rate) };
         for f in 0..frames {
