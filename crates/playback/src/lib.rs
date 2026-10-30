@@ -188,6 +188,13 @@ impl Player {
         p
     }
 
+    /// The output latency the driver reports (callback to playback), averaged over the last
+    /// callbacks; zero until it reports one, or when it never does (see
+    /// [`record::note_latency`]).
+    pub fn output_latency(&self) -> std::time::Duration {
+        std::time::Duration::from_micros(self.fault.latency_us.load(Ordering::Relaxed))
+    }
+
     /// What stopped the audio output, once: a bug in the engine, or the device went away or
     /// stopped asking for audio while playing.
     pub fn trouble(&self) -> Option<OutputTrouble> {

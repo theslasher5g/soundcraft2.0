@@ -1,4 +1,5 @@
 use super::import::add_source;
+use super::record_offset::compensate;
 #[cfg(test)]
 use super::session::{save_copy, save_session};
 use super::{Clip, Engine, EngineError, FileFormat, OsStr, PathBuf, Range, Samples, TrackId, read_file};
@@ -13,6 +14,10 @@ pub struct Recording {
     pub punch: Option<Range>,
     /// The input's sample rate, which the take files are written at.
     pub rate: u32,
+    /// The record offset in samples at the session's rate, fixed when the recording started
+    /// (see [`super::record_offset`]). Old autosaves have none: 0.
+    #[serde(default)]
+    pub offset: Samples,
     pub takes: Vec<Take>,
 }
 
@@ -26,24 +31,42 @@ pub struct Take {
 
 /// Place recorded take files as `plan` says, as one undo step ("Record").
 pub fn place_recording(e: &mut Engine, plan: &Recording, takes: Vec<(TrackId, PathBuf)>) -> Vec<soundcraft_model::ClipId> {
-    add_recording_in(e, plan.start, takes, plan.pass, plan.punch)
+    add_recording_in(e, plan.start, takes, plan.pass, plan.punch, plan.offset)
 }
 
 /// Turn recorded take files into clips at `start`, as one undo step ("Record"); each file is the
 /// source of its clips. With `pass` (loop recording), a take becomes one clip per pass (at most
 /// 1000), each pass after the first on a new playlist.
 pub fn add_recording(e: &mut Engine, start: Samples, takes: Vec<(TrackId, PathBuf)>, pass: Option<Samples>) -> Vec<soundcraft_model::ClipId> {
-    add_recording_in(e, start, takes, pass, None)
+    add_recording_in(e, start, takes, pass, None, 0)
+}
+
+/// [`add_recording`] with the record `offset` (in samples at the session's rate) applied.
+pub fn add_recording_offset(
+    e: &mut Engine,
+    start: Samples,
+    takes: Vec<(TrackId, PathBuf)>,
+    pass: Option<Samples>,
+    offset: Samples,
+) -> Vec<soundcraft_model::ClipId> {
+    add_recording_in(e, start, takes, pass, None, offset)
 }
 
 /// [`add_recording`] limited to the `punch` range: each clip is cut to it before it's placed, so
 /// the material around the punch isn't overwritten.
+///
+/// The record `offset` makes up for the latency between playing and recording (see
+/// [`super::record_offset`]). A plain take is placed `offset` earlier, and its head is cut off
+/// where that would be before 0. In loop recording every pass has to stay inside the loop, so a
+/// pass keeps its place and starts `offset` samples into its part of the take instead. The punch
+/// range is cut from the compensated take, as the performance lines up with the timeline.
 fn add_recording_in(
     e: &mut Engine,
     start: Samples,
     takes: Vec<(TrackId, PathBuf)>,
     pass: Option<Samples>,
     punch: Option<Range>,
+    offset: Samples,
 ) -> Vec<soundcraft_model::ClipId> {
     let before = e.session_arc();
     let mut out = Vec::new();
@@ -63,7 +86,8 @@ fn add_recording_in(
             buf.sample_rate = hz;
         }
         let name = path.file_stem().and_then(OsStr::to_str).unwrap_or("Take");
-        let len = i64::try_from(buf.frames()).unwrap_or(0);
+        let (start, skip) = if pass.is_some() { (start, offset.max(0)) } else { compensate(start, offset) };
+        let len = i64::try_from(buf.frames()).unwrap_or(0).saturating_sub(skip).max(0);
         let pass = pass.unwrap_or(len).max(1);
         // Work out what each pass keeps first, so a take nothing is placed from isn't registered.
         let mut kept_passes = Vec::new();
@@ -96,7 +120,7 @@ fn add_recording_in(
                 t.active_playlist = t.playlists.len() - 1;
             }
             let cid = s.new_clip_id();
-            crate::edit::place_clip(s, tid, Clip::audio(cid, name, src, offset.saturating_add(cut), clip_start, clip_len));
+            crate::edit::place_clip(s, tid, Clip::audio(cid, name, src, offset.saturating_add(cut).saturating_add(skip), clip_start, clip_len));
             out.push(cid);
         }
     }
@@ -195,6 +219,7 @@ mod record_tests {
             pass: None,
             punch: Some(Range::new(1_400, 1_600)),
             rate: 48_000,
+            offset: 0,
             takes: vec![Take { track: vox, path: take.clone(), channels: 1 }],
         };
         place_recording(&mut e, &plan, vec![(vox, take)]);
@@ -225,6 +250,7 @@ mod record_tests {
             pass: None,
             punch: Some(Range::new(5_000, 6_000)),
             rate: 48_000,
+            offset: 0,
             takes: vec![Take { track: vox, path: take.clone(), channels: 1 }],
         };
         let placed = place_recording(&mut e, &plan, vec![(vox, take)]);
@@ -245,5 +271,103 @@ mod record_tests {
         let punch = Some(Range::new(1_200, 1_400));
         assert_eq!(live_span(1_000, None, punch, 150), None);
         assert_eq!(live_span(1_000, None, punch, 500), Some((1_000, Range::new(1_200, 1_400))));
+    }
+
+    /// A simulated take: `frames` samples of a ramp on a fresh session's armed track, as the
+    /// recorder would leave it. No audio device is involved.
+    fn simulated(name: &str, frames: usize) -> (Engine, TrackId, PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("soundcraft-offset-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut e = Engine::default();
+        let vox = armed(&mut e, "Vox", "mono", "In 1");
+        let take = dir.join("Audio Files/Take.wav");
+        write_take(&take, frames);
+        (e, vox, take, dir)
+    }
+
+    fn clips(e: &Engine, t: TrackId) -> Vec<(Samples, Samples, Samples)> {
+        e.session().track(t).unwrap().playlists.iter().flat_map(|p| p.clips.iter().map(|c| (c.start, c.length, c.source_offset()))).collect()
+    }
+
+    #[test]
+    fn a_recording_is_placed_earlier_by_the_offset() {
+        let (mut e, vox, take, dir) = simulated("shift", 4_800);
+        let ids = add_recording_offset(&mut e, 96_000, vec![(vox, take)], None, 480);
+        assert_eq!(ids.len(), 1);
+        assert_eq!(clips(&e, vox), vec![(95_520, 4_800, 0)]);
+        e.execute("edit.undo", &json!({})).unwrap();
+        assert!(clips(&e, vox).is_empty(), "one undo step takes it away");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_offset_places_the_take_where_it_started() {
+        let (mut e, vox, take, dir) = simulated("zero", 4_800);
+        add_recording_offset(&mut e, 96_000, vec![(vox, take)], None, 0);
+        assert_eq!(clips(&e, vox), vec![(96_000, 4_800, 0)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_offset_larger_than_the_position_cuts_the_head_of_the_take() {
+        let (mut e, vox, take, dir) = simulated("head", 4_800);
+        add_recording_offset(&mut e, 100, vec![(vox, take)], None, 480);
+        assert_eq!(clips(&e, vox), vec![(0, 4_420, 380)], "380 samples would have been before 0");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_offset_longer_than_the_take_leaves_the_session_alone() {
+        let (mut e, vox, take, dir) = simulated("huge", 1_000);
+        let sources = e.session().sources.len();
+        for offset in [5_000, Samples::MAX] {
+            assert!(add_recording_offset(&mut e, 0, vec![(vox, take.clone())], None, offset).is_empty());
+        }
+        assert!(clips(&e, vox).is_empty());
+        assert_eq!(e.session().sources.len(), sources, "no source is registered for a take nothing is placed from");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_negative_offset_is_no_offset() {
+        let (mut e, vox, take, dir) = simulated("negative", 1_000);
+        add_recording_offset(&mut e, 2_000, vec![(vox, take)], None, -50);
+        assert_eq!(clips(&e, vox), vec![(2_000, 1_000, 0)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn loop_passes_keep_their_place_and_start_the_offset_into_the_take() {
+        let (mut e, vox, take, dir) = simulated("loop", 1_050);
+        let ids = add_recording_offset(&mut e, 1_000, vec![(vox, take)], Some(400), 50);
+        assert_eq!(ids.len(), 3);
+        assert_eq!(clips(&e, vox), vec![(1_000, 400, 50), (1_000, 400, 450), (1_000, 200, 850)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_punch_is_cut_from_the_compensated_take() {
+        let (mut e, vox, take, dir) = simulated("punch", 1_000);
+        let plan = Recording {
+            start: 1_000,
+            pass: None,
+            punch: Some(Range::new(1_400, 1_600)),
+            rate: 48_000,
+            offset: 100,
+            takes: vec![Take { track: vox, path: take.clone(), channels: 1 }],
+        };
+        place_recording(&mut e, &plan, vec![(vox, take)]);
+        // The take starts at 900, so the punch at 1400..1600 is 500 samples in (400 without the offset).
+        assert_eq!(clips(&e, vox), vec![(1_400, 200, 500)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_plan_from_an_old_autosave_has_no_offset() {
+        let old = r#"{"start":10,"pass":null,"punch":null,"rate":48000,"takes":[]}"#;
+        let plan: Recording = serde_json::from_str(old).unwrap();
+        assert_eq!(plan.offset, 0);
+        let json = serde_json::to_string(&Recording { offset: 64, ..plan }).unwrap();
+        assert_eq!(serde_json::from_str::<Recording>(&json).unwrap().offset, 64);
     }
 }

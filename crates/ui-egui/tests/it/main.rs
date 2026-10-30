@@ -37,6 +37,7 @@ mod open_on_insert;
 mod plugin_window;
 mod pro_tools_keys;
 mod record_hint;
+mod record_offset;
 mod rename_dialog;
 mod rtp_window;
 mod sampler_window;

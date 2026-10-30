@@ -26,6 +26,7 @@ mod more_util;
 mod options;
 mod plugin_state;
 mod query;
+mod record_offset;
 pub(crate) mod sampler;
 mod setup_more;
 mod strip_silence;
@@ -153,6 +154,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(auto_rename::specs());
         v.extend(event_more::specs());
         v.extend(setup_more::specs());
+        v.extend(record_offset::specs());
         v.extend(clap::specs());
         v.extend(vst3::specs());
         v.extend(surround::specs());
