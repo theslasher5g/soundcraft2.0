@@ -718,3 +718,35 @@ fn armed_tracks_are_heard_and_metered_after_playback_stops() {
     assert!(out.iter().any(|x| x.abs() > 0.1), "the input is heard");
     assert!(shared.meters.lock().unwrap().tracks.get(&t).is_some_and(|m| m.peak[0] > 0.1), "and metered");
 }
+
+#[test]
+fn input_that_piled_up_while_idle_is_not_heard_late() {
+    use soundcraft_model::{ChannelFormat, TrackKind};
+    let mut s = soundcraft_model::Session::default();
+    let t = s.add_track(TrackKind::Audio, ChannelFormat::Mono, None);
+    let shared = Arc::new(Shared {
+        position: AtomicI64::new(0),
+        playing: AtomicBool::new(false),
+        speed: AtomicU32::new(1000),
+        meters: Mutex::new(MeterSnapshot::default()),
+    });
+    let (tx, rx) = channel();
+    let mut st = AudioState::new(rx, Arc::clone(&shared), Arc::new(s), 48_000.0, channel().0);
+    let ring = record::InputRing::new(1, 48_000);
+    tx.send(Cmd::Input(Arc::clone(&ring))).unwrap();
+    let mut out = vec![0.0f32; 1024];
+    // Stopped, nothing armed or monitored: the input keeps arriving (half a second of it).
+    st.fill(&mut out, 2);
+    ring.push(&[0.9; 24_000]);
+    st.fill(&mut out, 2);
+    assert!(out.iter().all(|x| *x == 0.0), "idle output is silent");
+    // The track is armed now: only input that arrives from here on may be heard.
+    let mut armed = (*st.session).clone();
+    armed.track_mut(t).unwrap().mixer.record_arm = true;
+    tx.send(Cmd::Session(Arc::new(armed), Vec::new())).unwrap();
+    st.fill(&mut out, 2);
+    assert!(out.iter().all(|x| x.abs() < 1e-6), "the 0.9 that piled up while idle is gone, not played late");
+    ring.push(&[0.5; 4096]);
+    st.fill(&mut out, 2);
+    assert!(out.iter().any(|x| x.abs() > 0.1), "new input is heard");
+}
