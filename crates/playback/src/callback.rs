@@ -13,6 +13,9 @@ pub(crate) struct Fault {
     pub(crate) gone: AtomicBool,
     /// Blocks so far, to tell a device that stopped asking for audio.
     pub(crate) beats: std::sync::atomic::AtomicU64,
+    /// The output latency the driver reports (callback to playback), smoothed, in microseconds.
+    /// 0 until the driver says; many do not (see [`crate::record::note_latency`]).
+    pub(crate) latency_us: std::sync::atomic::AtomicU64,
     /// The UI has been told.
     reported: AtomicBool,
 }

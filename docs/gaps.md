@@ -1,6 +1,6 @@
 # Where SoundCraft falls short of Pro Tools
 
-> **Last reviewed:** 2026-10-25 · **Last updated:** 2026-10-25 · **Change:** trivial (G-01: `setup.playback_engine` applies the device buffer in the desktop app; G-04: Clip Looping crossfade and loop count) · **Target:** Avid Pro Tools Ultimate 2026.4.1
+> **Last reviewed:** 2026-10-25 · **Last updated:** 2026-10-30 · **Change:** minor (G-01: record offset compensation; previously trivial: `setup.playback_engine` applies the device buffer in the desktop app; G-04: Clip Looping crossfade and loop count) · **Target:** Avid Pro Tools Ultimate 2026.4.1
 
 Every known shortfall, one entry each, ranked by how much it stops a Pro Tools user from doing
 real work in SoundCraft. This is the work list: pick from the top. Rows marked **alpha blocker**
@@ -52,8 +52,15 @@ When you close a gap, delete its entry (or shrink it) in the same PR, and bump t
   not rounded onto the window's power-of-two list. Headless (CLI, no app) still stores the request
   and returns `applied: false`, with `buffer_size` null when unset; playback does not read those
   session values.
+- **Done (2026-10-30):** record offset compensation. `setup.record_offset` (Setup › Playback
+  Engine window, CLI, control channel; `{ms | samples, auto, reset}`) places every new recording
+  earlier by a manual offset (default 0, kept with the preferences, per machine) plus, when `auto`
+  is on (default off), the input and output latency cpal reports. Loop-record passes and punches
+  use it too. How to calibrate: [`record-offset.md`](record-offset.md). Proven by unit and engine
+  tests with simulated takes; **not yet verified with real hardware**. The take's live waveform
+  while recording is not shifted (only the placed clip is).
 - **Missing:** routing to physical channels (I/O Setup), one duplex stream on one clock (input and
-  output are still separate cpal streams), latency reporting and record-offset compensation, ASIO
+  output are still separate cpal streams), a per-device latency display, ASIO
   in official builds (owner decision: Steinberg's SDK is proprietary or GPLv3), JACK, and
   verification on macOS and Linux. The mix still runs in fixed 512-sample blocks.
 - **Evidence:** code above; Playback Engine window says "Mix block size: 512 samples"; issue #42
@@ -230,6 +237,7 @@ missing. Out of scope unless the owner decides otherwise.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-30 | minor | G-01: record offset compensation (`setup.record_offset`, manual plus driver-reported latency); calibration guide in `record-offset.md` |
 | 2026-10-25 | trivial | G-04: Clip Looping (#1030) lacks the loop crossfade option, and Number of Loops stops at 512 while length and fill make up to 1000 loops |
 | 2026-10-25 | trivial | G-01: `setup.playback_engine` and `setup.hardware` apply the device and buffer in the desktop app; headless returns `applied: false` |
 | 2026-10-24 | trivial | G-08: 27 processors + 3 instruments, as the plugin registry holds; G-20: the sampler shipped (#108), so it is no longer listed as missing |

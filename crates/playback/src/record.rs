@@ -27,6 +27,27 @@ const LIVE_BLOCKS: usize = 1 << 22;
 pub type LiveTake = Vec<Vec<(f32, f32)>>;
 
 const RING_SECONDS: usize = 4;
+
+/// The largest latency a driver's timestamps may report and still be believed (microseconds). A
+/// value beyond it comes from a driver with a bad clock.
+const MAX_LATENCY_US: u64 = 1_000_000;
+
+/// Keep the latency a driver reports in `slot` (microseconds): a running average over the last
+/// callbacks, as a single callback's timestamps jitter. Values beyond [`MAX_LATENCY_US`] are
+/// ignored. Lock-free and allocation-free, so the audio callbacks may call it.
+///
+/// The reported latency is only what the driver knows about. WASAPI in shared mode and USB audio
+/// class devices usually leave out converter and USB buffering, so the figure can be too small or
+/// 0; the manual record offset makes up for the rest.
+pub(crate) fn note_latency(slot: &AtomicU64, latency: Duration) {
+    let us = u64::try_from(latency.as_micros()).unwrap_or(u64::MAX);
+    if us > MAX_LATENCY_US {
+        return;
+    }
+    let old = slot.load(Ordering::Relaxed);
+    let next = if old == 0 { us } else { (old.saturating_mul(7).saturating_add(us)) / 8 };
+    slot.store(next, Ordering::Relaxed);
+}
 /// How long a recording input may go without a callback before it counts as gone.
 const STALL: Duration = Duration::from_secs(2);
 const GONE: u8 = 1;
@@ -95,12 +116,14 @@ struct Shared {
     fault: AtomicU8,
     /// The first failure writing a take, until it's reported.
     failed: Mutex<Option<String>>,
+    /// The input latency the driver reports (capture to callback), smoothed, in microseconds.
+    latency_us: AtomicU64,
 }
 
 impl Shared {
     fn new(ring: CaptureRing) -> Shared {
         let (beats, fault, failed) = (AtomicU64::new(0), AtomicU8::new(0), Mutex::new(None));
-        Shared { armed: AtomicBool::new(false), ring, dropped: AtomicUsize::new(0), beats, fault, failed }
+        Shared { armed: AtomicBool::new(false), ring, dropped: AtomicUsize::new(0), beats, fault, failed, latency_us: AtomicU64::new(0) }
     }
 
     /// Run the input callback's `work`. After a panic in it, the input is broken and does
@@ -159,8 +182,10 @@ where
     let mut owed = 0;
     device.build_input_stream(
         config,
-        move |data: &[T], _: &cpal::InputCallbackInfo| {
+        move |data: &[T], info: &cpal::InputCallbackInfo| {
             crate::mark_audio_thread();
+            let times = info.timestamp();
+            note_latency(&sh.latency_us, times.callback.duration_since(times.capture));
             sh.guarded(|| {
                 for part in data.chunks(chunk) {
                     let Some(s) = scratch.get_mut(..part.len()) else { return };
@@ -331,6 +356,12 @@ impl Recorder {
         (frames as u64).saturating_mul(1000) / u64::from(self.sample_rate.max(1))
     }
 
+    /// The input latency the driver reports (capture to callback), averaged over the last
+    /// callbacks; zero until it reports one. See [`note_latency`] for why it may be wrong.
+    pub fn input_latency(&self) -> Duration {
+        Duration::from_micros(self.shared.latency_us.load(Ordering::Relaxed))
+    }
+
     pub fn finish(&mut self) -> Takes {
         self.shared.armed.store(false, Ordering::Release);
         let (takes, problem) = self.writer.take().and_then(|(w, _)| w.join().ok()).unwrap_or_default();
@@ -459,6 +490,23 @@ impl TakeWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_reported_latency_is_averaged_and_hostile_values_are_ignored() {
+        let slot = AtomicU64::new(0);
+        note_latency(&slot, Duration::ZERO);
+        assert_eq!(slot.load(Ordering::Relaxed), 0, "a driver that reports nothing stays at 0");
+        note_latency(&slot, Duration::from_micros(8_000));
+        assert_eq!(slot.load(Ordering::Relaxed), 8_000, "the first value is taken as it is");
+        note_latency(&slot, Duration::from_micros(16_000));
+        assert_eq!(slot.load(Ordering::Relaxed), 9_000, "later ones move it by an eighth");
+        note_latency(&slot, Duration::from_secs(60));
+        note_latency(&slot, Duration::MAX);
+        assert_eq!(slot.load(Ordering::Relaxed), 9_000, "absurd values (a bad driver clock) change nothing");
+        let near_max = AtomicU64::new(u64::MAX);
+        note_latency(&near_max, Duration::from_micros(MAX_LATENCY_US));
+        assert!(near_max.load(Ordering::Relaxed) > 0, "no overflow");
+    }
 
     fn decode(path: &PathBuf) -> Vec<Vec<f32>> {
         soundcraft_audio_io::decode(&std::fs::read(path).unwrap(), None).unwrap().1.channels

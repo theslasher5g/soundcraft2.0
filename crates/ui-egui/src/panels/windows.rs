@@ -571,6 +571,8 @@ pub fn playback_engine(app: &mut SoundApp, ctx: &egui::Context) {
         if ui.button("Reconnect audio device").clicked() {
             app.reconnect_audio();
         }
+        ui.separator();
+        record_offset_controls(app, ui);
     });
     if refresh {
         audio_systems(ctx, true);
@@ -588,6 +590,59 @@ pub fn playback_engine(app: &mut SoundApp, ctx: &egui::Context) {
         });
     }
     app.ui.show_playback_engine = open;
+}
+
+/// The record offset controls of the Playback Engine window. Edits go through the
+/// `setup.record_offset` command, like every other way in.
+fn record_offset_controls(app: &mut SoundApp, ui: &mut egui::Ui) {
+    use soundcraft_engine::io::record_offset::{MAX_MANUAL_MS, MAX_MANUAL_SAMPLES, Manual};
+    let t = Tokens::current();
+    ui.label(egui::RichText::new("Record offset").strong());
+    let setting = app.ui.record_offset;
+    let (mut manual, mut auto) = (setting.manual, setting.auto);
+    ui.horizontal(|ui| {
+        ui.label("Place new recordings earlier by");
+        let (mut ms, mut samples) = match manual {
+            Manual::Ms(v) => (v, 0),
+            Manual::Samples(n) => (0.0, n),
+        };
+        let in_ms = matches!(manual, Manual::Ms(_));
+        let changed = if in_ms {
+            ui.add(egui::DragValue::new(&mut ms).range(0.0..=MAX_MANUAL_MS).speed(0.1).fixed_decimals(1).suffix(" ms")).changed()
+        } else {
+            ui.add(egui::DragValue::new(&mut samples).range(0..=MAX_MANUAL_SAMPLES).suffix(" samples")).changed()
+        };
+        if changed {
+            manual = if in_ms { Manual::Ms(ms) } else { Manual::Samples(samples) };
+        }
+        if ui.button(if in_ms { "Use samples" } else { "Use ms" }).clicked() {
+            let rate = app.engine.session().sample_rate.hz();
+            let n = setting.manual_samples(rate);
+            manual = if in_ms { Manual::Samples(n) } else { Manual::Ms(n as f64 * 1000.0 / f64::from(rate.max(1))) };
+        }
+    });
+    crate::widgets::checkbox(ui, &mut auto, "Also add the latency the audio driver reports");
+    let reported = app.reported_latency();
+    let rate = app.engine.session().sample_rate.hz();
+    ui.label(
+        egui::RichText::new(format!(
+            "In use: {} samples (driver reports {} samples). WASAPI and USB devices often report no real latency: set the manual value with a clap test (docs/record-offset.md).",
+            setting.total(rate, reported),
+            reported.samples(rate),
+        ))
+        .small()
+        .color(t.text_dim),
+    );
+    if manual != setting.manual || auto != setting.auto {
+        let key = if let Manual::Ms(_) = manual { "ms" } else { "samples" };
+        let value = match manual {
+            Manual::Ms(v) => json!(v),
+            Manual::Samples(n) => json!(n),
+        };
+        if let Err(e) = app.run("setup.record_offset", json!({ key: value, "auto": auto })) {
+            app.ui.status = e;
+        }
+    }
 }
 
 /// `ui.audio_device`: `{list?: bool}` returns the audio systems and their devices;
@@ -622,6 +677,17 @@ pub fn audio_device_command(app: &mut SoundApp, p: &serde_json::Value) -> Result
     if p.get("list").and_then(Value::as_bool).unwrap_or(false) {
         out["systems"] = json!(soundcraft_playback::devices::audio_systems());
     }
+    Ok(out)
+}
+
+/// `setup.record_offset` in the desktop app: the setting lives with the preferences (per machine)
+/// and the result includes what the open devices report right now, which `auto` adds.
+pub fn record_offset_command(app: &mut SoundApp, p: &serde_json::Value) -> Result<serde_json::Value, String> {
+    app.ui.record_offset.apply("setup.record_offset", p).map_err(|e| e.to_string())?;
+    let reported = app.reported_latency();
+    let mut out = app.ui.record_offset.report(app.engine.session().sample_rate.hz(), reported);
+    out["reported_input_us"] = json!(reported.input.as_micros());
+    out["reported_output_us"] = json!(reported.output.as_micros());
     Ok(out)
 }
 
