@@ -411,6 +411,41 @@ fn lane_click(app: &mut SoundApp, ui: &mut Ui, c: &LaneCtx<'_>, resp: &egui::Res
 
 /// Handle one track lane: clip context menus, drag-and-drop sources, sampler drops, and the active tool's selection,
 /// trim, fade, automation and clip editing.
+/// A click on a marker's line in an empty part of a lane picks the marker, a double click renames
+/// it, and Delete (see `shortcuts`) removes the picked one. A click anywhere else in the lanes
+/// drops the pick, so Delete never reaches a marker the user has moved on from. Clips come first:
+/// a clip under the pointer keeps the click. Returns true when the marker took the press.
+fn marker_in_lane(app: &mut SoundApp, ui: &Ui, resp: &egui::Response, inp: &LaneInput<'_>, hits: &LaneHits<'_>) -> bool {
+    let s = inp.s;
+    let flagged = s.edit.flag("view.marker.ruler_lines");
+    let near = resp.hover_pos().or_else(|| resp.interact_pointer_pos()).and_then(|p| {
+        let m = super::markers::marker_near(s, inp.tl, p.x)?;
+        // Lines are drawn when ruler lines are on, or for the picked marker.
+        (hits.hit.is_none() && (flagged || app.selected_marker == Some(m.id))).then(|| (m.id, m.name.clone()))
+    });
+    let pressed = ui.input(|i| i.pointer.primary_pressed()) && resp.is_pointer_button_down_on();
+    match near {
+        Some((id, name)) => {
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if resp.double_clicked() {
+                app.selected_marker = Some(id);
+                app.dialogs.open_rename_marker(id, &name);
+            } else if pressed || resp.clicked() {
+                app.selected_marker = Some(id);
+            }
+            pressed || resp.clicked() || resp.double_clicked()
+        }
+        None => {
+            if pressed {
+                app.selected_marker = None;
+            }
+            false
+        }
+    }
+}
+
 pub(super) fn lane_interaction(app: &mut SoundApp, ui: &mut Ui, track: &Track, lane: Rect, tl: Rect) {
     let resp = lane_menu_and_drops(app, ui, track, lane, tl);
     let s = app.engine.session_arc();
@@ -423,6 +458,9 @@ pub(super) fn lane_interaction(app: &mut SoundApp, ui: &mut Ui, track: &Track, l
     let auto_view = AutoParam::parse(&track.view);
     let inp = LaneInput { track, lane, tl, s: &s, tool, origin, at_origin, auto_view };
     let hits = hit_test(&inp);
+    if marker_in_lane(app, ui, &resp, &inp, &hits) {
+        return;
+    }
     let eff = effective_tool(&inp, &hits);
     if resp.hovered() {
         let icon = match eff {
