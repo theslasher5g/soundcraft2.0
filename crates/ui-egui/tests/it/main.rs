@@ -22,6 +22,7 @@ mod group_dialog;
 mod hide_floating;
 mod idle;
 mod key_families;
+mod marker_pick;
 mod marker_rename;
 mod menu_search;
 mod midi_double_click;

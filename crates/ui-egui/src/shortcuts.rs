@@ -137,6 +137,11 @@ fn fixed(app: &mut SoundApp, key: Key, m: Modifiers, mac: bool) -> bool {
             let _ = app.run("markers.add", json!({}));
             true
         }
+        // The marker picked in the ruler or a lane goes; with none picked the key does nothing.
+        Key::Delete | Key::Backspace if plain && app.ui.window == MainWindow::Edit && app.selected_marker.is_some() => {
+            delete_picked_marker(app);
+            true
+        }
         // Shift+=/- step the Grid value and Alt+Shift+=/- the Nudge value; macOS sends Alt+Shift+= as =, not +.
         Key::Plus | Key::Equals | Key::Minus if m.shift && !m.command && !m.ctrl && app.ui.window == MainWindow::Edit => {
             let step = if key == Key::Minus { -1 } else { 1 };
@@ -178,6 +183,15 @@ fn fixed(app: &mut SoundApp, key: Key, m: Modifiers, mac: bool) -> bool {
             true
         }
         _ => fixed_more(app, key, m, mac),
+    }
+}
+
+/// Delete the picked marker. A pick whose marker is gone (deleted elsewhere, or undone away) is
+/// just dropped.
+fn delete_picked_marker(app: &mut SoundApp) {
+    let Some(id) = app.selected_marker.take() else { return };
+    if app.engine.session().markers.iter().any(|m| m.id == id) {
+        let _ = app.run("markers.delete", json!({"id": id.0}));
     }
 }
 
