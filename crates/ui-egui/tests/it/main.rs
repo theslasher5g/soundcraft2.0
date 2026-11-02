@@ -30,6 +30,7 @@ mod midi_editor_keys;
 mod midi_front_visibility;
 mod midi_panel;
 mod midi_quantize;
+mod mix_dock;
 mod mix_narrow_headers;
 mod mix_separate;
 mod new_midi_clip;

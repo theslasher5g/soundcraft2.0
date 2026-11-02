@@ -20,6 +20,11 @@ pub(crate) use playback::automation_step_due;
 pub(crate) use plugins::{editor_changes, editor_states_due, failed_plugin_status};
 
 impl SoundApp {
+    /// Whether the compact Mix strips are pinned to the bottom of the Edit window right now.
+    pub fn docked_mix_shown(&self) -> bool {
+        self.ui.mix_dock && !self.ui.mix_separate && self.ui.window == MainWindow::Edit
+    }
+
     /// Whether fonts installed from the system are used besides the bundled ones (on by default).
     /// Takes effect only before the first frame installs the fonts.
     pub fn set_system_fonts(&mut self, on: bool) {
@@ -65,6 +70,7 @@ impl SoundApp {
             extra: extra_windows::ExtraState::default(),
             palette: palette::PaletteState::default(),
             focus_mix: false,
+            mix_compact: false,
             edit_scroll_into_view: None,
             mix_scroll_into_view: None,
             synthetic: Vec::new(),
@@ -386,7 +392,7 @@ impl SoundApp {
         }
         // Here, not in logic(): a covered or minimized window runs only logic(), with no vsync to pace it.
         if self.meters_live() {
-            let hz = if self.ui.window == MainWindow::Mix { 60 } else { 30 };
+            let hz = if self.ui.window == MainWindow::Mix || self.docked_mix_shown() { 60 } else { 30 };
             ctx.request_repaint_after(std::time::Duration::from_millis(1000 / hz));
         } else if self.meters.values().any(|m| m.level[0] > 0.0001) {
             ctx.request_repaint_after(std::time::Duration::from_millis(80));

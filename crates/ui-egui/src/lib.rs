@@ -121,6 +121,11 @@ pub struct UiState {
     /// The Mix window lives in its own native window (Window › Mix in Separate Window); the main
     /// window then always shows Edit.
     pub mix_separate: bool,
+    /// The Mix strips are pinned to the bottom of the Edit window (Window › Mix Docked at Bottom),
+    /// in a compact form, so Edit and Mix are seen together without a second window.
+    pub mix_dock: bool,
+    /// Height of that bottom panel, in points; the user drags its top edge.
+    pub mix_dock_height: f32,
     pub show_io_setup: bool,
     pub show_shortcuts: bool,
     pub show_clip_effects: bool,
@@ -187,6 +192,8 @@ impl Default for UiState {
             audio: soundcraft_playback::AudioConfig::default(),
             record_offset: Default::default(),
             mix_separate: false,
+            mix_dock: false,
+            mix_dock_height: 330.0,
             show_io_setup: false,
             show_shortcuts: false,
             show_clip_effects: false,
@@ -310,6 +317,8 @@ pub struct SoundApp {
     pub palette: palette::PaletteState,
     /// Bring the separate Mix window to the front on the next frame.
     pub(crate) focus_mix: bool,
+    /// Set while the docked, compact Mix strips are drawn (see `mix_window::content_docked`).
+    pub(crate) mix_compact: bool,
     /// Scroll Into View: the track each window brings to its top (Edit) or left (Mix) when it
     /// next draws, so a window not on screen catches up when it is shown.
     pub(crate) edit_scroll_into_view: Option<TrackId>,

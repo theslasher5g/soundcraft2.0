@@ -63,8 +63,23 @@ pub fn show(app: &mut SoundApp, ui: &mut Ui) {
     if app.ui.show_universe {
         egui::Panel::top("universe").exact_size(64.0).frame(egui::Frame::NONE.fill(Tokens::current().universe_bg)).show(ui, |ui| universe(app, ui));
     }
+    if app.docked_mix_shown() {
+        // Above the status and dock-tab bars, below everything else: the user drags its top edge.
+        let panel = egui::Panel::bottom("edit_mix_dock")
+            .resizable(true)
+            .default_size(app.ui.mix_dock_height)
+            .size_range(MIX_DOCK_MIN_H..=MIX_DOCK_MAX_H)
+            .frame(egui::Frame::NONE.fill(t.window_bg))
+            .show(ui, |ui| crate::mix_window::content_docked(app, ui));
+        app.ui.mix_dock_height = panel.response.rect.height().clamp(MIX_DOCK_MIN_H, MIX_DOCK_MAX_H);
+    }
     crate::docking::show(app, ui, crate::MainWindow::Edit);
 }
+
+/// The docked Mix panel's height limits, in points. Below the minimum the compact strips would
+/// be cut off; above the maximum the Edit window would be left with no room.
+const MIX_DOCK_MIN_H: f32 = 200.0;
+const MIX_DOCK_MAX_H: f32 = 900.0;
 
 /// Three dock toggle tabs for MIDI Editor, Memory Locations and Undo History.
 fn dock_tabs(app: &mut SoundApp, ui: &mut Ui) {
