@@ -5,7 +5,7 @@
 //! Placing a clip overwrites whatever is under it (like the incumbent's Slip mode); Shuffle
 //! mode also ripples later clips.
 
-use soundcraft_model::{AutoParam, AutomationPoint, Clip, ClipContent, ClipId, Fade, FadeShape, Session, Track, TrackId};
+use soundcraft_model::{AutoParam, AutomationPoint, Clip, ClipContent, ClipId, Fade, FadeShape, Session, Track, TrackId, TrackKind};
 use soundcraft_time::{Range, SampleRate, Samples, TempoMap};
 use std::collections::{HashMap, HashSet};
 
@@ -269,6 +269,49 @@ pub fn paste(s: &mut Session, track: TrackId, at: Samples, clips: &[Clip], lengt
     // Clear every destination first, so pasted clips that overlap (crossfades) keep each other.
     put_clips(s, placed);
     Ok(ids)
+}
+
+/// The shown track just above (`above`) or below `track` in the Edit window, if there is one.
+pub fn neighbor_track(s: &Session, track: TrackId, above: bool) -> Option<TrackId> {
+    let shown: Vec<TrackId> = s.tracks.iter().filter(|t| shown(s, t)).map(|t| t.id).collect();
+    let i = shown.iter().position(|t| *t == track)?;
+    if above { i.checked_sub(1).and_then(|j| shown.get(j)) } else { shown.get(i + 1) }.copied()
+}
+
+/// Comp: copy the material `src` holds inside `range` onto `dst`, in place (the same timeline
+/// positions), overwriting what `dst` has there. The source keeps its material, so a take can be
+/// comped from again. The two seams get an equal-power crossfade of up to `xfade` samples either
+/// side (limited by the handles the clips have), so the join does not click. Returns the number
+/// of clip pieces placed.
+///
+/// Both tracks must be audio tracks of the same channel format.
+pub fn comp_range(s: &mut Session, src: TrackId, dst: TrackId, range: Range, xfade: Samples) -> Result<usize, &'static str> {
+    if src == dst {
+        return Err("the source and the target are the same track");
+    }
+    if range.is_empty() {
+        return Err("make a range selection first");
+    }
+    let (Some(a), Some(b)) = (s.track(src), s.track(dst)) else { return Err("no such track") };
+    if a.kind != TrackKind::Audio || b.kind != TrackKind::Audio {
+        return Err("only audio tracks can be comped");
+    }
+    if a.format != b.format {
+        return Err("the tracks have different channel formats");
+    }
+    let pieces = copy_range(s, src, range);
+    if pieces.is_empty() {
+        return Err("the source track has nothing in that range");
+    }
+    let n = pieces.len();
+    paste(s, dst, range.start, &pieces, range.len(), false)?;
+    let xf = xfade.clamp(0, range.len() / 2);
+    if xf > 0 {
+        for seam in [range.start, range.end] {
+            create_fades(s, dst, Range::new(seam.saturating_sub(xf), seam.saturating_add(xf)), FadeShape::EqualPower);
+        }
+    }
+    Ok(n)
 }
 
 /// Place one clip, overwriting whatever it covers.

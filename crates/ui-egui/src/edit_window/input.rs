@@ -138,7 +138,7 @@ fn lane_menu_and_drops(app: &mut SoundApp, ui: &mut Ui, track: &Track, lane: Rec
     }
     // The clip may have been removed or moved since the right-click; only use it if it still exists.
     let menu_clip = ui.ctx().data(|d| d.get_temp::<Option<ClipId>>(menu_clip_id)).flatten().filter(|c| track.clips().iter().any(|x| x.id == *c));
-    resp.context_menu(|ui| clip_context_menu(app, ui, menu_clip));
+    resp.context_menu(|ui| clip_context_menu(app, ui, track.id, menu_clip));
     // Audio files dropped from the Clip List.
     if let Some(src) = resp.dnd_release_payload::<crate::DragSource>()
         && let Some(p) = ui.ctx().pointer_latest_pos()
@@ -542,11 +542,33 @@ pub(super) fn new_midi_clip(app: &mut SoundApp, s: &Session, track: TrackId, fro
     }
 }
 
-fn clip_context_menu(app: &mut SoundApp, ui: &mut Ui, clip: Option<ClipId>) {
+/// "Comp Selection to Track Above/Below": the range selection of this lane's track replaces the
+/// same stretch on the neighbouring track (`edit.comp`). Each item is off without a range
+/// selection or without a neighbour.
+fn comp_menu_items(app: &mut SoundApp, ui: &mut Ui, track: TrackId) {
+    let s = app.engine.session();
+    let has_range = !s.edit.selection.is_empty();
+    let (above, below) = (ops::neighbor_track(s, track, true).is_some(), ops::neighbor_track(s, track, false).is_some());
+    for (label, id, ok) in [("Comp Selection to Track Above", "edit.comp", above), ("Comp Selection to Track Below", "edit.comp_below", below)] {
+        let hint = if !has_range { "Select a range first" } else { "There is no track there" };
+        let r = ui.add_enabled(has_range && ok, egui::Button::new(label));
+        let r = if has_range && ok { r } else { r.on_disabled_hover_text(hint) };
+        if r.clicked() {
+            let result = app.run(id, json!({"source": track.0}));
+            if let Err(e) = result {
+                app.ui.status = e;
+            }
+            ui.close();
+        }
+    }
+}
+
+fn clip_context_menu(app: &mut SoundApp, ui: &mut Ui, track: TrackId, clip: Option<ClipId>) {
     let Some(c) = clip else {
         if ui.button("Paste").clicked() {
             let _ = app.run("edit.paste", json!({}));
         }
+        comp_menu_items(app, ui, track);
         return;
     };
     // A clip of the edit selection acts on the whole selection (the commands default to it); any other clip acts alone.
@@ -566,6 +588,7 @@ fn clip_context_menu(app: &mut SoundApp, ui: &mut Ui, clip: Option<ClipId>) {
         }
     }
     ui.separator();
+    comp_menu_items(app, ui, track);
     if ui.button("Rename...").clicked() {
         let name = app.engine.session().find_clip(c).map(|(_, x)| x.name.clone()).unwrap_or_default();
         app.dialogs.open_rename_clip(c, &name);
