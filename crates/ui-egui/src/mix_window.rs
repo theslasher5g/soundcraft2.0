@@ -56,6 +56,22 @@ pub fn separate_closed(app: &mut SoundApp) {
     app.ui.window = crate::MainWindow::Mix;
 }
 
+/// The Mix strips pinned to the bottom of the Edit window: the same strips, in a compact form
+/// (fader, meter, pan, record/input/solo/mute, name and readout; no inserts, sends or I/O), which
+/// fit a panel a few hundred points high. The full strips stay in the Mix window.
+pub(crate) fn content_docked(app: &mut SoundApp, ui: &mut Ui) {
+    let full = std::mem::take(&mut app.ui.mix_views);
+    app.mix_compact = true;
+    content(app, ui);
+    app.mix_compact = false;
+    app.ui.mix_views = full;
+}
+
+/// The least height of a strip: the full strip needs room for every section, the compact one
+/// does not.
+const STRIP_MIN_H: f32 = 560.0;
+const COMPACT_STRIP_MIN_H: f32 = 270.0;
+
 /// Draw the horizontal Mix window strips for visible non-video tracks, scroll one requested strip into view and open
 /// New Tracks when the space past the last strip is double-clicked.
 pub(crate) fn content(app: &mut SoundApp, ui: &mut Ui) {
@@ -181,7 +197,7 @@ fn strip(app: &mut SoundApp, ui: &mut Ui, id: TrackId, snap: Option<&MeterSnapsh
     let Some(track) = session.track(id) else { return };
     let narrow = app.ui.narrow_mix;
     let w = strip_width(narrow);
-    let h = ui.available_height().max(560.0);
+    let h = ui.available_height().max(if app.mix_compact { COMPACT_STRIP_MIN_H } else { STRIP_MIN_H });
     let (r, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
     if scroll_here {
         // egui stops `item_spacing` short of the edge (the scroll area's, not the strips' 1 pt),

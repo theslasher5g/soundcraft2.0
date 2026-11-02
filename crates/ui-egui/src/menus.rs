@@ -14,6 +14,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, Option<&str>)] = &[
     ("window.edit", "Edit", "Window > Edit", Some("Cmd+=")),
     ("window.toggle_mix_edit", "Toggle Mix/Edit", "", Some("Cmd+=")),
     ("window.mix_separate", "Mix in Separate Window", "", None),
+    ("window.mix_dock", "Mix Docked at Bottom", "", None),
     ("window.transport", "Transport", "Window > Transport", Some("Cmd+1")),
     ("window.big_counter", "Big Counter", "Window > Big Counter", Some("Cmd+3")),
     ("window.memory_locations", "Memory Locations", "Window > Memory Locations", Some("Cmd+5")),
@@ -274,6 +275,15 @@ pub fn menu_bar(app: &mut SoundApp, ui: &mut egui::Ui) {
                                 let _ = run_ui_command(app, "window.mix_separate", &json!({"value": separate}));
                                 ui.close();
                             }
+                            let mut docked = app.ui.mix_dock;
+                            if ui
+                                .checkbox(&mut docked, "Mix Docked at Bottom")
+                                .on_hover_text("Pin compact Mix strips to the bottom of the Edit window")
+                                .changed()
+                            {
+                                let _ = run_ui_command(app, "window.mix_dock", &json!({"value": docked}));
+                                ui.close();
+                            }
                         }
                     });
                 }
@@ -370,6 +380,7 @@ fn checked_state(app: &SoundApp, path: &str, id: Option<&str>) -> bool {
         Some("view.main_counter") => path.rsplit(" > ").next().map(ruler_id).is_some_and(|r| e.main_counter.id() == r),
         Some("window.mix") => app.ui.window == MainWindow::Mix,
         Some("window.edit") => app.ui.window == MainWindow::Edit,
+        Some("window.mix_dock") => app.ui.mix_dock,
         Some("window.track_list") => app.ui.show_tracks_list,
         Some("window.clip_list_view") | Some("window.clip_list") => app.ui.show_clip_list,
         Some("window.narrow_mix") => app.ui.narrow_mix,
@@ -546,6 +557,7 @@ pub fn run_ui_command(app: &mut SoundApp, id: &str, p: &Value) -> Option<Result<
             app.focus_mix = app.ui.mix_separate;
             v
         }
+        "window.mix_dock" => toggle(&mut app.ui.mix_dock),
         "window.edit" => {
             app.ui.window = MainWindow::Edit;
             json!({"window": "edit"})
