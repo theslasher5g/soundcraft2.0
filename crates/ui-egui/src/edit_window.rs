@@ -19,6 +19,7 @@ mod drag;
 mod header;
 mod input;
 mod layout;
+mod markers;
 mod overlay;
 mod rulers;
 mod scroll;

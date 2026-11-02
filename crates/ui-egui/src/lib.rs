@@ -282,6 +282,9 @@ pub struct SoundApp {
     /// Where the takes being recorded go, autosaved with the session so a crash can't lose them.
     take_plan: Option<soundcraft_engine::io::Recording>,
     pub ui: UiState,
+    /// The marker picked in the marker ruler or in a track lane: Delete removes it, a double
+    /// click renames it. Cleared by a click anywhere else in the lanes.
+    pub selected_marker: Option<soundcraft_model::MarkerId>,
     pub audio_health_report: Option<Result<Value, String>>,
     pub services: Services,
     /// Set only by a desktop host after installing an OS menu bar.

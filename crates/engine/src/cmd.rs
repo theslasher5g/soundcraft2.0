@@ -13,6 +13,7 @@ mod clap;
 mod clip;
 mod clip_list;
 mod clip_more;
+mod comp;
 mod edit;
 mod edit_more;
 mod event;
@@ -150,6 +151,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(view_more::specs());
         v.extend(track_more::specs());
         v.extend(clip_more::specs());
+        v.extend(comp::specs());
         v.extend(clip_list::specs());
         v.extend(auto_rename::specs());
         v.extend(event_more::specs());
