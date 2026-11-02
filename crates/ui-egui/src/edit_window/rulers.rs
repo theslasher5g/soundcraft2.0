@@ -184,6 +184,7 @@ pub(super) fn draw_rulers(app: &mut SoundApp, ui: &mut Ui, area: Rect, tl: Rect,
                     _ => 1,
                 };
                 painter.rect_filled(row, 0.0, if id == "chords" { Color32::from_rgb(40, 56, 60) } else { t.marker_ruler });
+                let picked = app.selected_marker;
                 for m in s.markers.iter().filter(|m| m.ruler == lane || (lane == 1 && m.ruler == 0)) {
                     let x = x_of(&s, tl, m.start);
                     let col = m.color.map_or(Color32::from_rgb(232, 200, 64), rgb);
@@ -191,6 +192,7 @@ pub(super) fn draw_rulers(app: &mut SoundApp, ui: &mut Ui, area: Rect, tl: Rect,
                         let x1 = x_of(&s, tl, m.end);
                         painter.rect_filled(Rect::from_min_max(pos2(x, row.min.y + 3.0), pos2(x1, row.max.y - 3.0)), 2.0, col.gamma_multiply(0.5));
                     }
+                    let outline = if picked == Some(m.id) { Stroke::new(1.5, Color32::WHITE) } else { Stroke::NONE };
                     painter.add(Shape::convex_polygon(
                         vec![
                             pos2(x - 5.0, row.min.y + 2.0),
@@ -200,11 +202,12 @@ pub(super) fn draw_rulers(app: &mut SoundApp, ui: &mut Ui, area: Rect, tl: Rect,
                             pos2(x - 5.0, row.max.y - 6.0),
                         ],
                         col,
-                        Stroke::NONE,
+                        outline,
                     ));
                     painter.text(pos2(x + 8.0, row.center().y), Align2::LEFT_CENTER, &m.name, bold(11.0), t.marker_text);
                 }
-                // Click on the marker ruler: recall a marker; double-click renames it, or adds one.
+                // Click on the marker ruler: pick and recall a marker (a click on empty ruler drops the
+                // pick); double-click renames it, or adds one.
                 let resp = ui.interact(row, ui.scope_id().with(("marker_ruler", lane)), Sense::click());
                 if let Some(p) = resp.interact_pointer_pos() {
                     let hit = s
@@ -219,10 +222,11 @@ pub(super) fn draw_rulers(app: &mut SoundApp, ui: &mut Ui, area: Rect, tl: Rect,
                                 let _ = app.run("markers.add", json!({"at": sample_at(&s, tl, p.x).max(0), "ruler": lane}));
                             }
                         }
-                    } else if resp.clicked()
-                        && let Some(m) = hit
-                    {
-                        let _ = app.run("markers.recall", json!({"number": m.number}));
+                    } else if resp.clicked() {
+                        app.selected_marker = hit.map(|m| m.id);
+                        if let Some(m) = hit {
+                            let _ = app.run("markers.recall", json!({"number": m.number}));
+                        }
                     }
                 }
             }

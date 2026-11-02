@@ -27,6 +27,13 @@ pub(super) fn overlay(app: &mut SoundApp, ui: &mut Ui, tl: Rect, area: Rect) {
             }
         }
     }
+    // The picked marker (Delete removes it) keeps a bright line even when ruler lines are off.
+    if let Some(m) = app.selected_marker.and_then(|id| s.markers.iter().find(|m| m.id == id)) {
+        let x = x_of(s, tl, m.start);
+        if x > tl.min.x && x < tl.max.x {
+            painter.line_segment([pos2(x, tl.min.y), pos2(x, tl.max.y)], Stroke::new(2.0, Color32::WHITE));
+        }
+    }
     let sel = s.edit.selection;
     // Timeline selection markers on the main ruler.
     if !sel.is_empty() {
