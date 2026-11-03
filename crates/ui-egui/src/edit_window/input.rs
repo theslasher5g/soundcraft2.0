@@ -418,6 +418,17 @@ fn lane_click(app: &mut SoundApp, ui: &mut Ui, c: &LaneCtx<'_>, resp: &egui::Res
 fn marker_in_lane(app: &mut SoundApp, ui: &Ui, resp: &egui::Response, inp: &LaneInput<'_>, hits: &LaneHits<'_>) -> bool {
     let s = inp.s;
     let flagged = s.edit.flag("view.marker.ruler_lines");
+    // Dragging a marker's line: the grab is the marker under the press, in an empty part of a lane.
+    let visible = |id: soundcraft_model::MarkerId| flagged || app.selected_marker == Some(id);
+    let grab = resp
+        .drag_started()
+        .then(|| super::markers::marker_near(s, inp.tl, inp.origin.x))
+        .flatten()
+        .filter(|m| visible(m.id) && clip_at(inp.track, inp.at_origin).is_none())
+        .map(|m| m.id);
+    if super::markers::drive_drag(app, ui, resp, inp.tl, grab) {
+        return true;
+    }
     let near = resp.hover_pos().or_else(|| resp.interact_pointer_pos()).and_then(|p| {
         let m = super::markers::marker_near(s, inp.tl, p.x)?;
         // Lines are drawn when ruler lines are on, or for the picked marker.

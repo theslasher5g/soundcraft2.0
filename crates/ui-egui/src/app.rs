@@ -48,6 +48,7 @@ impl SoundApp {
             take_plan: None,
             ui: UiState::default(),
             selected_marker: None,
+            marker_drag: None,
             audio_health_report: None,
             services,
             native_menu_bar: false,

@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-25 · **Last updated:** 2026-11-02 · **Change:** minor (Mix Docked at Bottom; previously minor: comping a range onto a neighbouring track: `edit.comp`; previously minor: markers picked in lanes and ruler: Delete, double-click rename; previously minor: Cancel Zoom Toggle) · **Target:** Avid Pro Tools Ultimate 2026.4.1
+> **Last reviewed:** 2026-10-25 · **Last updated:** 2026-11-03 · **Change:** minor (markers can be dragged; previously minor: Mix Docked at Bottom; previously minor: comping a range onto a neighbouring track: `edit.comp`; previously minor: markers picked in lanes and ruler: Delete, double-click rename; previously minor: Cancel Zoom Toggle) · **Target:** Avid Pro Tools Ultimate 2026.4.1
 
 How SoundCraft feels in the hands of a Pro Tools user: tools, modes, modifiers, shortcuts,
 windows, meters. Measured from `crates/model/src/session.rs` (tools, modes), the command
@@ -22,7 +22,7 @@ Legend: ✅ matches · 🟡 partial · ❌ missing.
 | Edit modes: Shuffle, Slip, Spot, Grid (absolute/relative) | ✅ | Spot dialog present |
 | Grid and nudge values, all timebases | ✅ | Bars/Beats, Min:Secs, Timecode, Feet+Frames, Samples |
 | Zoom Toggle | 🟡 | E (Commands focus) and the button zoom to the edit selection with Fit To Window heights and back; Alt+Shift+E and Alt-click cancel it and keep the view. The Zoom Toggle preferences (Vertical Zoom, Horizontal Zoom, Track Height, Track View, Separate Grid Settings When Zoomed In, Zoom Toggle Follows Edit Selection, Remove Range Selection After Zooming In) are not present |
-| Markers in the track lanes | 🟡 | A click on a marker's line in an empty part of a lane (or on its flag in the marker ruler) picks it; Delete or Backspace removes the picked marker (one undo step); a double click on the line renames it. A click elsewhere in the lanes drops the pick. Needs the Ruler Lines view option (on by default). Not verified in the running app; covered by tests that drive the UI with synthetic input |
+| Markers in the track lanes | 🟡 | A click on a marker's line in an empty part of a lane (or on its flag in the marker ruler) picks it; Delete or Backspace removes the picked marker (one undo step); a double click on the line renames it; dragging the flag in the marker ruler or the line in an empty part of a lane moves the marker (it follows the pointer, snaps to the grid in the grid modes, stops at 0, Escape drops the drag; the session changes when the mouse is let go, so the whole drag is one undo step, and the playhead is not moved). A click elsewhere in the lanes drops the pick. Needs the Ruler Lines view option (on by default). Not verified in the running app; covered by tests that drive the UI with synthetic input |
 | Comping (build one take from pieces of others) | 🟡 | `edit.comp` / `edit.comp_below` (Edit menu, and the lane's right-click menu "Comp Selection to Track Above/Below"): the range selected on a take's track replaces the same stretch of the track above or below, with equal-power crossfades of 8 ms (0 to 500 ms) at both seams; the take keeps its material; one undo step; audio tracks of the same channel format only. No drag-up gesture with the mouse yet, and no take-lane view. Dragging a whole clip to another track already overwrites what it covers. Not verified in the running app |
 | Keyboard focus modes (Commands, Clip List, Groups) | 🟡 | Commands focus single-key editing ✅; list focus partial |
 | Link timeline/edit, link track/edit, Tab to transient, insertion follows playback | ✅ | |
@@ -72,6 +72,7 @@ Legend: ✅ matches · 🟡 partial · ❌ missing.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-11-03 | minor | Markers: dragging a flag in the marker ruler or a marker's line in a lane moves it (grid snap, Escape cancels, one undo step). Readiness estimate unchanged |
 | 2026-11-02 | minor | Mix Docked at Bottom: compact Mix strips pinned to the bottom of the Edit window (Window menu, `window.mix_dock`). Readiness estimate unchanged |
 | 2026-11-02 | minor | Comping: `edit.comp` and `edit.comp_below` copy a range of a take onto the track above or below with crossfaded seams; context-menu entries in the lane. Readiness estimate unchanged |
 | 2026-11-02 | minor | Markers picked in the marker ruler and on their line in track lanes: Delete/Backspace removes the picked marker, double click on the line renames it. Readiness estimate unchanged |
