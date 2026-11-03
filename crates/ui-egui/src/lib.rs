@@ -262,6 +262,20 @@ pub enum Gesture {
     ZoomBox { start: f32 },
 }
 
+/// A marker being dragged with the mouse (see `edit_window::markers`): the session is only
+/// changed when the mouse is let go, so the whole drag is one undo step.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct MarkerDrag {
+    pub id: soundcraft_model::MarkerId,
+    /// Where the marker started.
+    pub from: Samples,
+    /// Where it would land now (snapped to the grid in the grid modes, never before 0).
+    pub at: Samples,
+    /// The marker's start minus the sample under the pointer when it was grabbed, so it does
+    /// not jump to the pointer.
+    pub grab: Samples,
+}
+
 pub struct SoundApp {
     pub engine: Engine,
     /// The session path as of the last frame, and whether the recent list changed since the host
@@ -285,6 +299,8 @@ pub struct SoundApp {
     /// The marker picked in the marker ruler or in a track lane: Delete removes it, a double
     /// click renames it. Cleared by a click anywhere else in the lanes.
     pub selected_marker: Option<soundcraft_model::MarkerId>,
+    /// The marker the mouse is dragging, if any.
+    pub(crate) marker_drag: Option<MarkerDrag>,
     pub audio_health_report: Option<Result<Value, String>>,
     pub services: Services,
     /// Set only by a desktop host after installing an OS menu bar.

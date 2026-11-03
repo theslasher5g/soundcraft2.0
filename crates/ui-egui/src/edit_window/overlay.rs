@@ -18,7 +18,7 @@ pub(super) fn overlay(app: &mut SoundApp, ui: &mut Ui, tl: Rect, area: Rect) {
     let painter = ui.painter().with_clip_rect(area);
     if s.edit.flag("view.marker.ruler_lines") {
         for m in &s.markers {
-            let x = x_of(s, tl, m.start);
+            let x = x_of(s, tl, super::markers::shown_start(app.marker_drag, m));
             if x > tl.min.x && x < tl.max.x {
                 painter.line_segment(
                     [pos2(x, tl.min.y), pos2(x, tl.max.y)],
@@ -29,7 +29,7 @@ pub(super) fn overlay(app: &mut SoundApp, ui: &mut Ui, tl: Rect, area: Rect) {
     }
     // The picked marker (Delete removes it) keeps a bright line even when ruler lines are off.
     if let Some(m) = app.selected_marker.and_then(|id| s.markers.iter().find(|m| m.id == id)) {
-        let x = x_of(s, tl, m.start);
+        let x = x_of(s, tl, super::markers::shown_start(app.marker_drag, m));
         if x > tl.min.x && x < tl.max.x {
             painter.line_segment([pos2(x, tl.min.y), pos2(x, tl.max.y)], Stroke::new(2.0, Color32::WHITE));
         }

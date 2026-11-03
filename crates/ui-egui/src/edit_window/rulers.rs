@@ -1,5 +1,6 @@
 use super::input::snap;
 use super::layout::{COLUMN_TITLES_H, COLUMNS, Column, HEADER_W, RULER_H, edit_columns, header_width, sample_at, x_of};
+use super::markers;
 use super::{
     Align2, Color32, GridValue, NoteValue, Range, Rect, Samples, Sense, Session, Shape, SoundApp, Stroke, TimeFormat, Tokens, Ui, bold,
     format_position, json, pos2, regular, rgb, vec2,
@@ -185,11 +186,12 @@ pub(super) fn draw_rulers(app: &mut SoundApp, ui: &mut Ui, area: Rect, tl: Rect,
                 };
                 painter.rect_filled(row, 0.0, if id == "chords" { Color32::from_rgb(40, 56, 60) } else { t.marker_ruler });
                 let picked = app.selected_marker;
+                let dragging = app.marker_drag;
                 for m in s.markers.iter().filter(|m| m.ruler == lane || (lane == 1 && m.ruler == 0)) {
-                    let x = x_of(&s, tl, m.start);
+                    let x = x_of(&s, tl, markers::shown_start(dragging, m));
                     let col = m.color.map_or(Color32::from_rgb(232, 200, 64), rgb);
                     if m.kind == soundcraft_model::MarkerKind::Selection {
-                        let x1 = x_of(&s, tl, m.end);
+                        let x1 = x + (x_of(&s, tl, m.end) - x_of(&s, tl, m.start));
                         painter.rect_filled(Rect::from_min_max(pos2(x, row.min.y + 3.0), pos2(x1, row.max.y - 3.0)), 2.0, col.gamma_multiply(0.5));
                     }
                     let outline = if picked == Some(m.id) { Stroke::new(1.5, Color32::WHITE) } else { Stroke::NONE };
@@ -208,8 +210,20 @@ pub(super) fn draw_rulers(app: &mut SoundApp, ui: &mut Ui, area: Rect, tl: Rect,
                 }
                 // Click on the marker ruler: pick and recall a marker (a click on empty ruler drops the
                 // pick); double-click renames it, or adds one.
-                let resp = ui.interact(row, ui.scope_id().with(("marker_ruler", lane)), Sense::click());
-                if let Some(p) = resp.interact_pointer_pos() {
+                // Dragging a flag moves the marker (one undo step, when the mouse is let go).
+                let resp = ui.interact(row, ui.scope_id().with(("marker_ruler", lane)), Sense::click_and_drag());
+                let grab = if resp.drag_started() {
+                    ui.input(|i| i.pointer.press_origin()).and_then(|o| {
+                        let on_lane = |m: &&soundcraft_model::MemoryLocation| m.ruler == lane || (lane == 1 && m.ruler == 0);
+                        s.markers.iter().filter(on_lane).find(|m| (x_of(&s, tl, m.start) - o.x).abs() < 8.0).map(|m| m.id)
+                    })
+                } else {
+                    None
+                };
+                let moving = markers::drive_drag(app, ui, &resp, tl, grab);
+                if moving {
+                    // The drag has the pointer: no click or double click comes out of it.
+                } else if let Some(p) = resp.interact_pointer_pos() {
                     let hit = s
                         .markers
                         .iter()
